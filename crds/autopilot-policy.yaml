@@ -1,0 +1,130 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: autopilotpolicies.autopilot.k8s.io
+  labels:
+    app.kubernetes.io/name: k8s-autopilot
+    app.kubernetes.io/component: crd
+spec:
+  group: autopilot.k8s.io
+  names:
+    kind:     AutopilotPolicy
+    plural:   autopilotpolicies
+    singular: autopilotpolicy
+    shortNames: [app]
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Mode
+          type: string
+          jsonPath: .spec.mode
+        - name: Namespaces
+          type: string
+          jsonPath: .spec.targetNamespaces
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [mode]
+              properties:
+                mode:
+                  type: string
+                  enum: [dry-run, suggest, auto, approval]
+                  description: >
+                    dry-run:  log only, no actions or notifications.
+                    suggest:  notify only, never act.
+                    auto:     act immediately on safe triggers.
+                    approval: always require Slack approval before acting.
+                targetNamespaces:
+                  type: array
+                  items:
+                    type: string
+                  description: Namespaces to watch. Empty means all.
+                ignoredNamespaces:
+                  type: array
+                  items:
+                    type: string
+                  default: [kube-system, kube-public, kube-node-lease]
+                watchedLabels:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Only watch pods/deployments with these labels.
+                rules:
+                  type: array
+                  description: Per-trigger remediation rules.
+                  items:
+                    type: object
+                    required: [trigger]
+                    properties:
+                      trigger:
+                        type: string
+                        enum:
+                          - CrashLoopBackOff
+                          - OOMKilled
+                          - ImagePullError
+                          - PendingScheduling
+                          - LivenessProbeFailure
+                          - NodeNotReady
+                          - NodeDiskPressure
+                          - NodeMemoryPressure
+                          - DeploymentStalled
+                      autoRemediate:
+                        type: boolean
+                        default: false
+                      requireApproval:
+                        type: boolean
+                        default: true
+                      maxPerHour:
+                        type: integer
+                        default: 3
+                        minimum: 1
+                        maximum: 20
+                      minRestartCount:
+                        type: integer
+                        default: 3
+                        description: Minimum restarts before acting on CrashLoopBackOff.
+                      notifyPagerDuty:
+                        type: boolean
+                        default: false
+                      cooldownAfterActionSeconds:
+                        type: integer
+                        default: 300
+                rateLimit:
+                  type: object
+                  properties:
+                    globalMaxPerHour:
+                      type: integer
+                      default: 20
+                    perResourceMaxPerHour:
+                      type: integer
+                      default: 3
+                    cooldownSeconds:
+                      type: integer
+                      default: 300
+            status:
+              type: object
+              properties:
+                observedGeneration:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:   {type: string}
+                      status: {type: string}
+                      reason: {type: string}
+                      message: {type: string}
+                      lastTransitionTime: {type: string}

@@ -1,0 +1,92 @@
+---
+# Example: production namespace — suggest mode, all triggers enabled
+apiVersion: autopilot.k8s.io/v1alpha1
+kind: AutopilotPolicy
+metadata:
+  name: production-policy
+  namespace: production
+spec:
+  mode: approval           # require Slack sign-off for every action
+  targetNamespaces:
+    - production
+  ignoredNamespaces:
+    - kube-system
+  rateLimit:
+    globalMaxPerHour: 10
+    perResourceMaxPerHour: 2
+    cooldownSeconds: 600   # 10-minute cooldown after any action
+  rules:
+    - trigger: CrashLoopBackOff
+      requireApproval: true
+      maxPerHour: 2
+      minRestartCount: 5
+      notifyPagerDuty: true
+
+    - trigger: OOMKilled
+      requireApproval: true
+      maxPerHour: 2
+      notifyPagerDuty: true
+
+    - trigger: ImagePullError
+      requireApproval: false   # safe to notify without approval
+      maxPerHour: 5
+
+    - trigger: PendingScheduling
+      requireApproval: false
+      maxPerHour: 5
+
+    - trigger: NodeNotReady
+      requireApproval: true
+      notifyPagerDuty: true
+      maxPerHour: 1
+
+    - trigger: NodeDiskPressure
+      requireApproval: true
+      notifyPagerDuty: true
+
+    - trigger: NodeMemoryPressure
+      requireApproval: true
+      notifyPagerDuty: true
+
+---
+# Example: staging namespace — auto mode, auto-remediate safe triggers
+apiVersion: autopilot.k8s.io/v1alpha1
+kind: AutopilotPolicy
+metadata:
+  name: staging-policy
+  namespace: staging
+spec:
+  mode: auto
+  targetNamespaces:
+    - staging
+  rateLimit:
+    globalMaxPerHour: 30
+    perResourceMaxPerHour: 5
+    cooldownSeconds: 120
+  rules:
+    - trigger: CrashLoopBackOff
+      autoRemediate: true
+      requireApproval: false
+      maxPerHour: 5
+      minRestartCount: 3
+
+    - trigger: OOMKilled
+      autoRemediate: true
+      requireApproval: false
+      maxPerHour: 3
+
+    - trigger: ImagePullError
+      autoRemediate: false
+      requireApproval: false
+
+---
+# Example: dev namespace — dry-run, just log everything
+apiVersion: autopilot.k8s.io/v1alpha1
+kind: AutopilotPolicy
+metadata:
+  name: dev-policy
+  namespace: dev
+spec:
+  mode: dry-run
+  targetNamespaces:
+    - dev

@@ -1,0 +1,328 @@
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-autopilot
+  namespace: k8s-autopilot
+  labels:
+    app.kubernetes.io/name: k8s-autopilot
+    app.kubernetes.io/component: operator
+
+---
+# ClusterRole — read access across all namespaces + write access for remediation
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8s-autopilot
+  labels:
+    app.kubernetes.io/name: k8s-autopilot
+rules:
+  # Read pods, nodes, deployments, events
+  - apiGroups: [""]
+    resources: [pods, pods/log, pods/status, nodes, nodes/status, events, namespaces,
+                resourcequotas, replicationcontrollers]
+    verbs: [get, list, watch]
+
+  # Write pods (restart = delete)
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [delete]
+
+  # Write nodes (cordon/uncordon = patch)
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [patch, update]
+
+  # Read + write deployments, replicasets, statefulsets, daemonsets
+  - apiGroups: [apps]
+    resources: [deployments, deployments/scale, replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch, patch, update]
+
+  # Eviction API for drain
+  - apiGroups: [""]
+    resources: [pods/eviction]
+    verbs: [create]
+
+  # Our CRDs
+  - apiGroups: [autopilot.k8s.io]
+    resources: [autopilotpolicies, remediationaudits]
+    verbs: [get, list, watch, create, update, patch, delete]
+
+  # kopf internals — store operator progress
+  - apiGroups: [kopf.dev]
+    resources: [clusterkopfpeerings]
+    verbs: [get, list, watch, create, update, patch, delete]
+
+  # kopf per-namespace peerings
+  - apiGroups: [kopf.dev]
+    resources: [kopfpeerings]
+    verbs: [get, list, watch, create, update, patch, delete]
+
+  # Events (kopf posts events)
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch, update]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8s-autopilot
+  labels:
+    app.kubernetes.io/name: k8s-autopilot
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8s-autopilot
+subjects:
+  - kind: ServiceAccount
+    name: k8s-autopilot
+    namespace: k8s-autopilot
+
+---
+# Namespace for the operator itself
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: k8s-autopilot
+  labels:
+    app.kubernetes.io/name: k8s-autopilot
+
+---
+# ConfigMap — operator configuration (override with env vars in the Deployment)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: autopilot-config
+  namespace: k8s-autopilot
+  labels:
+    app.kubernetes.io/name: k8s-autopilot
+data:
+  config.yaml: |
+    mode: suggestion          # dry-run | suggest | auto | approval
+    targetNamespaces: []      # empty = watch all
+    ignoredNamespaces:
+      - kube-system
+      - kube-public
+      - kube-node-lease
+    logLines: 200
+    rateLimit:
+      globalMaxPerHour: 20
+      perResourceMaxPerHour: 3
+      cooldownSeconds: 300
+    defaultRules:
+      - trigger: CrashLoopBackOff
+        autoRemediate: false
+        requireApproval: true
+        maxPerHour: 3
+        minRestartCount: 3
+      - trigger: OOMKilled
+        autoRemediate: false
+        requireApproval: true
+        maxPerHour: 2
+      - trigger: ImagePullError
+        autoRemediate: false
+        requireApproval: false
+        maxPerHour: 5
+      - trigger: NodeNotReady
+        autoRemediate: false
+        requireApproval: true
+        notifyPagerDuty: true
+
+---
+# Operator Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-autopilot
+  namespace: k8s-autopilot
+  labels:
+    app.kubernetes.io/name: k8s-autopilot
+    app.kubernetes.io/component: operator
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+spec:
+  replicas: 1    # operator must be a singleton
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8s-autopilot
+  strategy:
+    type: Recreate   # never run two instances simultaneously
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k8s-autopilot
+        app.kubernetes.io/component: operator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "8000"
+        prometheus.io/path:   "/metrics"
+    spec:
+      serviceAccountName: k8s-autopilot
+      securityContext:
+        runAsNonRoot: true
+        runAsUser:    1000
+        fsGroup:      2000
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: operator
+          image: ghcr.io/YOUR_ORG/k8s-autopilot:latest   # replace with your image
+          imagePullPolicy: Always
+          command: [python, -m, operator.main]
+          ports:
+            - name: metrics
+              containerPort: 8000
+              protocol: TCP
+            - name: webhook
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # Mode — override per environment
+            - name: AUTOPILOT_MODE
+              value: "suggest"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: CONFIG_FILE
+              value: "/etc/autopilot/config.yaml"
+            - name: AUDIT_DB_PATH
+              value: "/data/autopilot-audit.db"
+
+            # Secrets — mounted from K8s Secret
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: autopilot-secrets
+                  key: anthropic-api-key
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: autopilot-secrets
+                  key: slack-bot-token
+                  optional: true
+            - name: SLACK_CHANNEL
+              valueFrom:
+                secretKeyRef:
+                  name: autopilot-secrets
+                  key: slack-channel
+                  optional: true
+            - name: SLACK_APPROVAL_CHANNEL
+              valueFrom:
+                secretKeyRef:
+                  name: autopilot-secrets
+                  key: slack-approval-channel
+                  optional: true
+            - name: PD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: autopilot-secrets
+                  key: pd-api-key
+                  optional: true
+            - name: PD_SERVICE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: autopilot-secrets
+                  key: pd-service-id
+                  optional: true
+
+          volumeMounts:
+            - name: config
+              mountPath: /etc/autopilot
+              readOnly: true
+            - name: audit-data
+              mountPath: /data
+
+          resources:
+            requests:
+              cpu:    100m
+              memory: 256Mi
+            limits:
+              cpu:    500m
+              memory: 512Mi
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: webhook
+            initialDelaySeconds: 15
+            periodSeconds:       30
+            failureThreshold:    3
+
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: webhook
+            initialDelaySeconds: 10
+            periodSeconds:       10
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem:   true
+            capabilities:
+              drop: [ALL]
+
+      volumes:
+        - name: config
+          configMap:
+            name: autopilot-config
+        - name: audit-data
+          persistentVolumeClaim:
+            claimName: autopilot-audit-pvc
+
+---
+# PVC for the SQLite audit database
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: autopilot-audit-pvc
+  namespace: k8s-autopilot
+  labels:
+    app.kubernetes.io/name: k8s-autopilot
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# Service — expose metrics and webhook endpoints
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-autopilot
+  namespace: k8s-autopilot
+  labels:
+    app.kubernetes.io/name: k8s-autopilot
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port:   "8000"
+spec:
+  selector:
+    app.kubernetes.io/name: k8s-autopilot
+  ports:
+    - name: metrics
+      port: 8000
+      targetPort: 8000
+    - name: webhook
+      port: 8080
+      targetPort: 8080
+
+---
+# ServiceMonitor for Prometheus Operator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: k8s-autopilot
+  namespace: k8s-autopilot
+  labels:
+    app.kubernetes.io/name: k8s-autopilot
+    release: prometheus   # match your Prometheus Operator label selector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8s-autopilot
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics

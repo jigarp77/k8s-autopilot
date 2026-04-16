@@ -1,0 +1,17 @@
+-r requirements.txt
+
+# Testing
+pytest==8.2.0
+pytest-asyncio==0.23.6
+pytest-cov==5.0.0
+pytest-mock==3.14.0
+respx==0.21.0          # async HTTP mocking
+
+# Linting / formatting
+ruff==0.4.4
+black==24.4.2
+mypy==1.10.0
+pre-commit==3.7.1
+
+# K8s test utilities
+kubernetes==29.0.0     # sync client for test fixtures
