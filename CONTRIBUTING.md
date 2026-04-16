@@ -31,9 +31,9 @@ chore: pin anthropic to 0.28.x
 
 ## Adding a remediation action
 
-1. Create or add to `operator/remediations/your_module.py`
+1. Create or add to `autopilot/remediations/your_module.py`
 2. Use `@registry.register("action_key", description="...", safe_auto=True/False)`
-3. Import the module in `operator/main.py`
+3. Import the module in `autopilot/main.py`
 4. Add a unit test in `tests/unit/`
 5. Document the action in `README.md` under "Supported triggers"
 

@@ -1,10 +1,10 @@
 .PHONY: help install test lint fmt build push deploy crds clean
 
 REGISTRY     ?= ghcr.io
-IMAGE_NAME   ?= $(shell basename $(CURDIR))
+IMAGE_NAME   ?= k8s-autopilot
 IMAGE_TAG    ?= latest
 NAMESPACE    ?= k8s-autopilot
-KUBECONTEXT  ?= $(shell kubectl config current-context)
+KUBECONTEXT  ?= $(shell kubectl config current-context 2>/dev/null)
 
 help:
 	@echo "K8s Autopilot — developer targets"
@@ -23,52 +23,46 @@ help:
 
 install:
 	pip install -r requirements-dev.txt
-	pre-commit install
+	pre-commit install || true
 
 test:
 	pytest tests/unit/ \
-		--cov=operator \
+		--cov=autopilot \
 		--cov-report=term-missing \
 		--cov-report=html:htmlcov \
 		-v --tb=short
-	@echo "Coverage report: htmlcov/index.html"
 
 lint:
-	ruff check operator/ tests/
-	mypy operator/ --ignore-missing-imports
+	ruff check autopilot/ tests/
+	ruff format --check autopilot/ tests/
+	mypy autopilot/ --ignore-missing-imports --no-strict-optional
 
 fmt:
-	black operator/ tests/
-	ruff check --fix operator/ tests/
+	ruff format autopilot/ tests/
+	ruff check --fix autopilot/ tests/
 
 build:
 	docker build \
 		--tag $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG) \
-		--tag $(REGISTRY)/$(IMAGE_NAME):$(shell git rev-parse --short HEAD) \
 		.
 
 push: build
 	docker push $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
-	docker push $(REGISTRY)/$(IMAGE_NAME):$(shell git rev-parse --short HEAD)
 
 crds:
-	kubectl apply -f crds/ --context $(KUBECONTEXT)
-	kubectl wait --for=condition=Established crd/autopilotpolicies.autopilot.k8s.io --timeout=30s
-	kubectl wait --for=condition=Established crd/remediationaudits.autopilot.k8s.io  --timeout=30s
-	@echo "CRDs installed"
+	kubectl apply -f crds/
 
 deploy: crds
-	kubectl apply -f deploy/deployment.yaml --context $(KUBECONTEXT)
+	kubectl apply -f deploy/deployment.yaml
 	kubectl rollout status deployment/k8s-autopilot -n $(NAMESPACE) --timeout=120s
 
 logs:
-	kubectl logs -f deployment/k8s-autopilot -n $(NAMESPACE) --context $(KUBECONTEXT)
+	kubectl logs -f deployment/k8s-autopilot -n $(NAMESPACE)
 
 dry-run:
 	AUTOPILOT_MODE=dry-run \
 	LOG_LEVEL=DEBUG \
-	ANTHROPIC_API_KEY=$(ANTHROPIC_API_KEY) \
-	python -m operator.main
+	python -m autopilot.main
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

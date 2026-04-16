@@ -5,16 +5,18 @@ Tests for DiagnosisEngine — mocks out the Anthropic client.
 """
 
 import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
-from operator.config import AnthropicConfig, OperatorConfig
-from operator.engines.context_collector import PodContext
-from operator.engines.diagnosis_engine import (
-    Diagnosis, DiagnosisEngine, RemediationAction,
-    Severity, TriggerCategory,
+from autopilot.config import AnthropicConfig, OperatorConfig
+from autopilot.engines.context_collector import PodContext
+from autopilot.engines.diagnosis_engine import (
+    Diagnosis,
+    DiagnosisEngine,
+    Severity,
+    TriggerCategory,
 )
-
 
 SAMPLE_RESPONSE = {
     "trigger_category": "CrashLoopBackOff",
@@ -44,11 +46,11 @@ def config():
 
 @pytest.fixture
 def engine(config):
-    with patch("operator.engines.diagnosis_engine.anthropic.Anthropic") as MockClient:
+    with patch("autopilot.engines.diagnosis_engine.anthropic.Anthropic") as MockClient:
         instance = MockClient.return_value
         msg = MagicMock()
         msg.content = [MagicMock(text=json.dumps(SAMPLE_RESPONSE))]
-        msg.usage.input_tokens  = 1000
+        msg.usage.input_tokens = 1000
         msg.usage.output_tokens = 200
         instance.messages.create.return_value = msg
         eng = DiagnosisEngine(config)
@@ -56,18 +58,17 @@ def engine(config):
 
 
 class TestDiagnosisEngine:
-
     @pytest.mark.asyncio
     async def test_diagnose_pod_returns_diagnosis(self, engine):
-        eng, mock_client = engine
+        eng, _ = engine
         ctx = PodContext(namespace="default", pod_name="my-pod")
 
         diag = await eng.diagnose_pod(ctx, "CrashLoopBackOff")
 
         assert isinstance(diag, Diagnosis)
         assert diag.trigger_category == TriggerCategory.CRASH_LOOP_BACK_OFF
-        assert diag.severity         == Severity.HIGH
-        assert diag.confidence       == pytest.approx(0.92)
+        assert diag.severity == Severity.HIGH
+        assert diag.confidence == pytest.approx(0.92)
         assert len(diag.recommended_actions) == 1
 
     @pytest.mark.asyncio
@@ -88,7 +89,8 @@ class TestDiagnosisEngine:
     @pytest.mark.asyncio
     async def test_api_error_returns_fallback(self, config):
         import anthropic as _anthropic
-        with patch("operator.engines.diagnosis_engine.anthropic.Anthropic") as MockClient:
+
+        with patch("autopilot.engines.diagnosis_engine.anthropic.Anthropic") as MockClient:
             instance = MockClient.return_value
             instance.messages.create.side_effect = _anthropic.APIError(
                 message="rate limited", request=MagicMock(), body=None
@@ -97,16 +99,16 @@ class TestDiagnosisEngine:
             ctx = PodContext(namespace="default", pod_name="broken-pod")
             diag = await eng.diagnose_pod(ctx, "OOMKilled")
 
-        assert diag.confidence   == 0.0
+        assert diag.confidence == 0.0
         assert diag.trigger_category == TriggerCategory.UNKNOWN
 
     @pytest.mark.asyncio
     async def test_malformed_json_returns_fallback(self, config):
-        with patch("operator.engines.diagnosis_engine.anthropic.Anthropic") as MockClient:
+        with patch("autopilot.engines.diagnosis_engine.anthropic.Anthropic") as MockClient:
             instance = MockClient.return_value
             msg = MagicMock()
             msg.content = [MagicMock(text="this is not json {{{")]
-            msg.usage.input_tokens  = 100
+            msg.usage.input_tokens = 100
             msg.usage.output_tokens = 10
             instance.messages.create.return_value = msg
             eng = DiagnosisEngine(config)

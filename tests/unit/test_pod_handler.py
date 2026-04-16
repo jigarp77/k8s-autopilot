@@ -4,12 +4,10 @@ tests/unit/test_pod_handler.py
 Tests for pod trigger detection logic.
 """
 
-import pytest
-from operator.handlers.pod_handler import _get_crash_trigger
+from autopilot.handlers.pod_handler import _get_crash_trigger
 
 
 class TestGetCrashTrigger:
-
     def _pod(self, container_statuses=None, conditions=None, phase="Running"):
         return {
             "status": {
@@ -43,7 +41,7 @@ class TestGetCrashTrigger:
 
     def test_image_pull_backoff_detected(self):
         pod = self._pod(container_statuses=[self._waiting_cs("app", "ImagePullBackOff")])
-        trigger, reason = _get_crash_trigger(pod)
+        trigger, _ = _get_crash_trigger(pod)
         assert trigger == "ImagePullError"
 
     def test_err_image_pull_detected(self):
@@ -52,16 +50,12 @@ class TestGetCrashTrigger:
         assert trigger == "ImagePullError"
 
     def test_oom_killed_detected(self):
-        pod = self._pod(container_statuses=[
-            self._terminated_cs("app", 137, reason="OOMKilled")
-        ])
+        pod = self._pod(container_statuses=[self._terminated_cs("app", 137, reason="OOMKilled")])
         trigger, _ = _get_crash_trigger(pod)
         assert trigger == "OOMKilled"
 
     def test_exit_137_detected_as_oom(self):
-        pod = self._pod(container_statuses=[
-            self._terminated_cs("app", 137)
-        ])
+        pod = self._pod(container_statuses=[self._terminated_cs("app", 137)])
         trigger, _ = _get_crash_trigger(pod)
         assert trigger == "OOMKilled"
 
@@ -69,8 +63,12 @@ class TestGetCrashTrigger:
         pod = self._pod(
             phase="Pending",
             conditions=[
-                {"type": "PodScheduled", "status": "False", "message": "0/3 nodes available"}
-            ]
+                {
+                    "type": "PodScheduled",
+                    "status": "False",
+                    "message": "0/3 nodes available",
+                }
+            ],
         )
         trigger, reason = _get_crash_trigger(pod)
         assert trigger == "PendingScheduling"
@@ -78,12 +76,14 @@ class TestGetCrashTrigger:
 
     def test_running_pod_no_trigger(self):
         pod = self._pod(
-            container_statuses=[{
-                "name": "app",
-                "restartCount": 0,
-                "state": {"running": {"startedAt": "2024-01-01T00:00:00Z"}},
-                "lastState": {},
-            }]
+            container_statuses=[
+                {
+                    "name": "app",
+                    "restartCount": 0,
+                    "state": {"running": {"startedAt": "2024-01-01T00:00:00Z"}},
+                    "lastState": {},
+                }
+            ]
         )
         trigger, _ = _get_crash_trigger(pod)
         assert trigger == ""
@@ -94,12 +94,16 @@ class TestGetCrashTrigger:
 
     def test_first_container_triggers(self):
         """Multiple containers — first failing one wins."""
-        pod = self._pod(container_statuses=[
-            {
-                "name": "sidecar", "restartCount": 0,
-                "state": {"running": {}}, "lastState": {},
-            },
-            self._waiting_cs("app", "CrashLoopBackOff"),
-        ])
+        pod = self._pod(
+            container_statuses=[
+                {
+                    "name": "sidecar",
+                    "restartCount": 0,
+                    "state": {"running": {}},
+                    "lastState": {},
+                },
+                self._waiting_cs("app", "CrashLoopBackOff"),
+            ]
+        )
         trigger, _ = _get_crash_trigger(pod)
         assert trigger == "CrashLoopBackOff"

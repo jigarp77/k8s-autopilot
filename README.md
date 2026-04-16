@@ -1,6 +1,6 @@
 # K8s Autopilot — AI Remediation Engine
 
-[![CI](https://github.com/jigarp77/k8s-autopilot/actions/workflows/ci.yml/badge.svg)](https://github.com/jigarp77/k8s-autopilot/actions/workflows/ci.yml)
+[![CI](https://github.com/YOUR_ORG/k8s-autopilot/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_ORG/k8s-autopilot/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
 
@@ -179,7 +179,7 @@ spec:
 
 ```
 k8s-autopilot/
-├── operator/
+├── autopilot/
 │   ├── main.py                        # Kopf operator entrypoint + webhook server
 │   ├── config.py                      # Config management (env + YAML overlay)
 │   ├── engines/
@@ -232,10 +232,10 @@ k8s-autopilot/
 The action registry uses a plugin pattern. Adding a new action takes 15 lines:
 
 ```python
-# operator/remediations/my_actions.py
+# autopilot/remediations/my_actions.py
 
-from operator.remediations.registry import ActionResult, registry
-from operator.utils.k8s_client import K8sClient
+from autopilot.remediations.registry import ActionResult, registry
+from autopilot.utils.k8s_client import K8sClient
 
 @registry.register(
     "clear_evicted_pods",
@@ -260,10 +260,10 @@ async def clear_evicted_pods(
                         message=f"Deleted {len(evicted)} evicted pods in {namespace}")
 ```
 
-Then import it in `operator/main.py`:
+Then import it in `autopilot/main.py`:
 
 ```python
-import operator.remediations.my_actions  # noqa: F401
+import autopilot.remediations.my_actions  # noqa: F401
 ```
 
 The AI can now return `"action": "clear_evicted_pods"` and the engine will call your function.

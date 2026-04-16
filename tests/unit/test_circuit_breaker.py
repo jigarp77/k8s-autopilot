@@ -4,11 +4,12 @@ tests/unit/test_circuit_breaker.py
 Unit tests for CircuitBreaker.
 """
 
-import pytest
 import time
 from unittest.mock import patch
 
-from operator.utils.circuit_breaker import CircuitBreaker, CBState
+import pytest
+
+from autopilot.utils.circuit_breaker import CBState, CircuitBreaker
 
 
 @pytest.fixture
@@ -17,7 +18,6 @@ def cb():
 
 
 class TestCircuitBreaker:
-
     def test_starts_closed(self, cb):
         assert cb.state == CBState.CLOSED
         assert cb.is_open() is False
@@ -38,32 +38,31 @@ class TestCircuitBreaker:
             cb.record_failure()
         assert cb.state == CBState.OPEN
 
-        with patch("operator.utils.circuit_breaker.time") as mt:
+        with patch("autopilot.utils.circuit_breaker.time") as mt:
             mt.monotonic.return_value = time.monotonic() + 61
-            # is_open triggers the transition check
             result = cb.is_open()
             assert cb.state == CBState.HALF_OPEN
-            assert result is False   # allowed through
+            assert result is False
 
     def test_success_in_half_open_closes(self, cb):
         for _ in range(3):
             cb.record_failure()
 
-        with patch("operator.utils.circuit_breaker.time") as mt:
+        with patch("autopilot.utils.circuit_breaker.time") as mt:
             mt.monotonic.return_value = time.monotonic() + 61
-            cb.is_open()   # → HALF_OPEN
+            cb.is_open()
 
         cb.record_success()
-        cb.record_success()   # 2 = success_threshold
+        cb.record_success()
         assert cb.state == CBState.CLOSED
 
     def test_failure_in_half_open_reopens(self, cb):
         for _ in range(3):
             cb.record_failure()
 
-        with patch("operator.utils.circuit_breaker.time") as mt:
+        with patch("autopilot.utils.circuit_breaker.time") as mt:
             mt.monotonic.return_value = time.monotonic() + 61
-            cb.is_open()   # → HALF_OPEN
+            cb.is_open()
 
         cb.record_failure()
         assert cb.state == CBState.OPEN

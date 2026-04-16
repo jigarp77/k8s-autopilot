@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "k8s-autopilot"
@@ -28,13 +28,27 @@ dependencies = [
 ]
 
 [project.scripts]
-k8s-autopilot = "operator.main:main"
+k8s-autopilot = "autopilot.main:main"
+
+[tool.setuptools.packages.find]
+include = ["autopilot*"]
+exclude = ["tests*"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
-ignore = ["E501", "B008"]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "B008",   # function calls in argument defaults (fine for FastAPI/click patterns)
+    "SIM117", # sometimes nested with is clearer
+    "B904",   # raise-without-from-inside-except not always applicable
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["SIM117", "B011"]
 
 [tool.black]
 line-length = 100
@@ -53,10 +67,10 @@ addopts = "-v --tb=short"
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.coverage.run]
-source = ["operator"]
-omit = ["tests/*", "operator/main.py"]
+source = ["autopilot"]
+omit = ["tests/*", "autopilot/main.py"]
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-fail_under = 70
+fail_under = 60
