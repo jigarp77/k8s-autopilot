@@ -135,7 +135,8 @@ class AuditLogger:
             [*params, limit],
         ).fetchall()
 
-        cols = [d[0] for d in self._conn.execute("PRAGMA table_info(audit_log)").fetchall()]
+        # PRAGMA table_info returns (cid, name, type, notnull, dflt_value, pk)
+        cols = [r[1] for r in self._conn.execute("PRAGMA table_info(audit_log)").fetchall()]
         return [dict(zip(cols, r, strict=False)) for r in rows]
 
     def summary(self, since_hours: int = 24) -> dict:
