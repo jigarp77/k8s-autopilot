@@ -1,6 +1,6 @@
 # K8s Autopilot — AI Remediation Engine
 
-[![CI](https://github.com/YOUR_ORG/k8s-autopilot/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_ORG/k8s-autopilot/actions/workflows/ci.yml)
+[![CI](https://github.com/jigarp77/k8s-autopilot/actions/workflows/ci.yml/badge.svg)](https://github.com/jigarp77/k8s-autopilot/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
 
